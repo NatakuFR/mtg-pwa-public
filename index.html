@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Grimoire de collection MTG</title>
+<meta name="description" content="Suivi de collection Magic: The Gathering avec cotes Cardmarket, scan par caméra, historique et alertes." />
+<meta name="theme-color" content="#14131c" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="wrap">
+
+  <header class="app-header">
+    <div>
+      <div class="eyebrow" id="icon-sparkle">✦ Cardmarket · EUR</div>
+      <h1 class="title">Grimoire de collection</h1>
+    </div>
+    <div class="total-block">
+      <div class="total-label">Valeur totale</div>
+      <div class="total-value" id="total-value">—</div>
+    </div>
+  </header>
+
+  <div class="update-bar">
+    <button class="btn-gold" id="btn-update-prices">
+      <span id="update-icon">⟳</span>
+      <span id="update-label">Mettre à jour les prix</span>
+    </button>
+    <span class="text-muted" id="last-update">Pas encore mis à jour</span>
+    <span class="text-loss" id="update-error" hidden></span>
+    <span class="text-gain" id="update-msg" hidden></span>
+  </div>
+
+  <nav class="tabs">
+    <button data-tab="collection" class="active">Collection</button>
+    <button data-tab="scanner">Scanner</button>
+    <button data-tab="evolution">Évolution</button>
+    <button data-tab="alertes">Alertes <span class="badge-count" id="alert-badge" hidden>0</span></button>
+    <button data-tab="reglages">Réglages</button>
+  </nav>
+
+  <div class="panel">
+    <div class="panel-holes"></div>
+    <div class="panel-body">
+
+      <!-- COLLECTION -->
+      <section id="tab-collection" class="tab-section active">
+        <div class="card-search-box">
+          <div class="section-eyebrow">⌕ Ajouter une carte</div>
+          <div id="search-idle">
+            <div class="search-wrap">
+              <input class="input" id="search-input" placeholder="Nom de la carte (ex : Lightning Bolt)" autocomplete="off" />
+              <div class="suggestions" id="suggestions" hidden></div>
+            </div>
+            <div class="text-loss" id="search-error" hidden style="margin-top:8px;"></div>
+            <div class="text-muted" id="search-loading" hidden style="margin-top:8px;">Chargement de la carte…</div>
+          </div>
+          <div id="search-preview" hidden></div>
+        </div>
+        <div id="collection-list"></div>
+      </section>
+
+      <!-- SCANNER -->
+      <section id="tab-scanner" class="tab-section">
+        <div class="section-eyebrow">📷 Scanner une carte</div>
+        <p class="text-muted" style="margin:0 0 12px;">
+          Lecture du nom imprimé sur la carte par reconnaissance de texte (OCR), puis recherche sur Scryfall.
+          Fonctionne mieux à plat, bien éclairé, sans reflet — vérifie toujours le résultat avant d'ajouter.
+        </p>
+        <div class="scan-stage" id="scan-stage">
+          <video id="scan-video" playsinline muted></video>
+          <canvas id="scan-canvas" hidden></canvas>
+          <div class="scan-guide" id="scan-guide" hidden></div>
+        </div>
+        <div class="scan-actions">
+          <button class="btn-gold" id="btn-scan-start">📷 Activer la caméra</button>
+          <button class="btn-gold" id="btn-scan-capture" hidden>Capturer</button>
+          <button class="btn-ghost" id="btn-scan-stop" hidden>Fermer</button>
+        </div>
+        <div class="scan-status" id="scan-status"></div>
+        <div id="scan-preview"></div>
+      </section>
+
+      <!-- EVOLUTION -->
+      <section id="tab-evolution" class="tab-section">
+        <div class="section-eyebrow">Valeur totale de la collection</div>
+        <div id="evolution-empty" class="empty-state" hidden>
+          Aucun historique pour l'instant. Clique sur « Mettre à jour les prix » pour commencer à suivre l'évolution.
+        </div>
+        <div class="chart-box" id="portfolio-chart-box" hidden><canvas id="portfolio-chart"></canvas></div>
+
+        <div id="card-history-block" hidden style="margin-top:20px;">
+          <div class="section-eyebrow">Historique d'une carte</div>
+          <select id="history-select"><option value="">Choisir une carte…</option></select>
+          <div id="card-history-empty" class="empty-state" hidden style="padding:24px 16px;">
+            Pas encore assez de données pour cette carte.
+          </div>
+          <div class="chart-box" id="card-chart-box" hidden style="margin-top:12px;"><canvas id="card-chart"></canvas></div>
+        </div>
+      </section>
+
+      <!-- ALERTES -->
+      <section id="tab-alertes" class="tab-section">
+        <div class="section-eyebrow" id="alerts-title">Cartes avec un mouvement notable</div>
+        <div id="alerts-empty" class="empty-state">Aucune alerte pour le moment.</div>
+        <div id="alerts-list"></div>
+      </section>
+
+      <!-- REGLAGES -->
+      <section id="tab-reglages" class="tab-section">
+        <div class="settings-block">
+          <h3>Seuil d'alerte</h3>
+          <p>Une carte apparaît dans les alertes quand son prix varie d'au moins ce pourcentage entre deux mises à jour.</p>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input class="input" type="number" min="1" id="threshold-input" style="width:80px;" value="10" />
+            <span class="text-muted">%</span>
+            <button class="btn-gold" id="btn-save-threshold">Enregistrer</button>
+          </div>
+
+          <h3 style="margin-top:28px; color: var(--loss);">Zone sensible</h3>
+          <p>Efface définitivement ta collection et tout l'historique de prix stocké sur cet appareil.</p>
+          <button class="btn-ghost" id="btn-reset-data" style="color: var(--loss); border-color: var(--loss);">
+            Réinitialiser toutes les données
+          </button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <footer class="note">
+    Les cotes viennent de Scryfall (prix Cardmarket, EUR). La mise à jour se fait uniquement quand tu ouvres
+    l'app et cliques sur « Mettre à jour les prix ». Les données sont stockées uniquement sur cet appareil
+    (dans ce navigateur) — pas de compte, pas de serveur.
+  </footer>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="app.js" defer></script>
+</body>
+</html>
