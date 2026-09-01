@@ -111,6 +111,150 @@ function openCardConfirm(card, containerEl, onDone) {
   });
 }
 
+/* ===== Multi-printing resolution (same name, different editions) ===== */
+
+async function resolvePrintings(name) {
+  // Scoped to English prints: Cardmarket pricing is most reliable there, and the
+  // artwork is identical across languages so visual matching still works fine
+  // even if the physical card the user owns is in French, German, etc.
+  const q = encodeURIComponent(`!"${name}" lang:en`);
+  const res = await fetch(`https://api.scryfall.com/cards/search?q=${q}&unique=prints&order=released&dir=desc`);
+  if (!res.ok) throw new Error('search failed');
+  const data = await res.json();
+  return data.data || [];
+}
+
+function printingThumb(p) {
+  return p.image_uris?.small || p.card_faces?.[0]?.image_uris?.small || '';
+}
+
+function openPrintingPicker(printings, containerEl, onPick, highlightId) {
+  containerEl.innerHTML = `
+    <div class="section-eyebrow">⚠ ${printings.length} éditions trouvées — laquelle as-tu ?</div>
+    <div class="printing-grid">
+      ${printings.map(p => `
+        <button type="button" class="printing-item${p.id === highlightId ? ' likely' : ''}" data-id="${p.id}">
+          ${p.id === highlightId ? '<span class="likely-badge">Probable</span>' : ''}
+          <img src="${printingThumb(p)}" alt="">
+          <div class="printing-label">${escapeHtml(p.set_name)}<br><span class="text-muted">${(p.set || '').toUpperCase()}${p.released_at ? ' · ' + p.released_at.slice(0, 4) : ''}</span></div>
+        </button>
+      `).join('')}
+    </div>
+    <button type="button" class="btn-ghost cancel-printing" style="margin-top:10px;">Annuler</button>
+  `;
+  containerEl.hidden = false;
+  containerEl.querySelectorAll('.printing-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const card = printings.find(p => p.id === btn.dataset.id);
+      if (card) onPick(card);
+    });
+  });
+  containerEl.querySelector('.cancel-printing').addEventListener('click', () => {
+    containerEl.hidden = true;
+    containerEl.innerHTML = '';
+  });
+}
+
+/* ===== Lightweight perceptual hash (for auto-ranking editions from a photo) ===== */
+
+function loadImageEl(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+function computeAHash(imgLike, size = 16) {
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(imgLike, 0, 0, size, size);
+  const data = ctx.getImageData(0, 0, size, size).data;
+  const gray = [];
+  let sum = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const g = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    gray.push(g);
+    sum += g;
+  }
+  const avg = sum / gray.length;
+  let hash = '';
+  for (const g of gray) hash += (g >= avg ? '1' : '0');
+  return hash;
+}
+
+function hammingDistance(a, b) {
+  let d = 0;
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) if (a[i] !== b[i]) d++;
+  return d + Math.abs(a.length - b.length);
+}
+
+// Compares the photographed art region against each candidate printing's
+// art crop from Scryfall, and returns the id of the closest visual match.
+async function rankPrintingsByArt(sourceCanvas, artX, artY, artW, artH, printings) {
+  let capHash;
+  try {
+    const capCanvas = document.createElement('canvas');
+    capCanvas.width = artW; capCanvas.height = artH;
+    capCanvas.getContext('2d').drawImage(sourceCanvas, artX, artY, artW, artH, 0, 0, artW, artH);
+    capHash = computeAHash(capCanvas);
+  } catch (e) {
+    return null;
+  }
+
+  let bestId = null;
+  let bestDist = Infinity;
+  const limited = printings.slice(0, 40); // keep runtime reasonable for heavily-reprinted cards
+  for (const p of limited) {
+    const artUrl = p.image_uris?.art_crop || p.card_faces?.[0]?.image_uris?.art_crop;
+    if (!artUrl) continue;
+    try {
+      const img = await loadImageEl(artUrl);
+      const hash = computeAHash(img);
+      const dist = hammingDistance(capHash, hash);
+      if (dist < bestDist) { bestDist = dist; bestId = p.id; }
+    } catch (e) { /* image failed to load or CORS-blocked: skip this candidate */ }
+  }
+  return bestId;
+}
+
+/* ===== Collector number / set code OCR (bottom-left of the card) ===== */
+
+async function ocrCollectorArea(sourceCanvas, infoX, infoY, infoW, infoH) {
+  if (!window.Tesseract) return '';
+  try {
+    const scale = 4;
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(infoW * scale));
+    c.height = Math.max(1, Math.round(infoH * scale));
+    const cx = c.getContext('2d');
+    cx.imageSmoothingEnabled = true;
+    cx.drawImage(sourceCanvas, infoX, infoY, infoW, infoH, 0, 0, c.width, c.height);
+    const { data: { text } } = await Tesseract.recognize(c.toDataURL('image/png'), 'eng+fra');
+    return (text || '').toUpperCase();
+  } catch (e) {
+    return '';
+  }
+}
+
+function matchPrintingByCollectorText(rawText, printings) {
+  if (!rawText) return null;
+  for (const p of printings) {
+    const setCode = (p.set || '').toUpperCase();
+    const num = (p.collector_number || '').toUpperCase();
+    if (!setCode || !num) continue;
+    const numNoZeros = num.replace(/^0+/, '') || num;
+    if (rawText.includes(setCode) && (rawText.includes(num) || rawText.includes(numNoZeros))) {
+      return p;
+    }
+  }
+  return null;
+}
+
 function addCardToCollection(scryfallCard, qty, foil) {
   const imageUrl = scryfallCard.image_uris?.small
     || scryfallCard.card_faces?.[0]?.image_uris?.small
@@ -188,21 +332,41 @@ function initCollectionTab() {
   });
 }
 
+// /cards/autocomplete only matches English names — switched to /cards/search,
+// which also matches printed (localized) names, so French/German/etc. queries work too.
+async function searchCardsAnyLanguage(query) {
+  const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=cards&order=name`);
+  if (res.status === 404) return []; // no matches — expected while typing, not an error
+  if (!res.ok) throw new Error('search failed');
+  const data = await res.json();
+  return data.data || [];
+}
+
 async function fetchSuggestions(q) {
   try {
-    const res = await fetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(q)}`);
-    const data = await res.json();
-    renderSuggestions(data.data || []);
+    const results = await searchCardsAnyLanguage(q);
+    renderSuggestions(results);
   } catch (e) {
     searchErrorEl.textContent = 'Connexion à Scryfall impossible. Réessaie dans un instant.';
     searchErrorEl.hidden = false;
   }
 }
 
-function renderSuggestions(names) {
-  if (!names.length) { suggestionsBox.hidden = true; suggestionsBox.innerHTML = ''; return; }
-  suggestionsBox.innerHTML = names.slice(0, 8)
-    .map(n => `<button type="button" data-name="${escapeHtml(n)}">${escapeHtml(n)}</button>`).join('');
+function renderSuggestions(cards) {
+  const seen = new Set();
+  const items = [];
+  for (const c of cards) {
+    if (seen.has(c.name)) continue;
+    seen.add(c.name);
+    items.push(c);
+    if (items.length >= 8) break;
+  }
+  if (!items.length) { suggestionsBox.hidden = true; suggestionsBox.innerHTML = ''; return; }
+  suggestionsBox.innerHTML = items.map(c => {
+    const localized = c.printed_name && c.printed_name !== c.name
+      ? ` <span class="text-muted">(${escapeHtml(c.printed_name)})</span>` : '';
+    return `<button type="button" data-name="${escapeHtml(c.name)}">${escapeHtml(c.name)}${localized}</button>`;
+  }).join('');
   suggestionsBox.hidden = false;
 }
 
@@ -212,11 +376,16 @@ async function selectCardByName(name) {
   searchInput.value = name;
   searchLoadingEl.hidden = false;
   try {
-    const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`);
-    if (!res.ok) throw new Error('not found');
-    const card = await res.json();
+    const printings = await resolvePrintings(name);
+    if (printings.length === 0) throw new Error('not found');
     searchIdle.hidden = true;
-    openCardConfirm(card, searchPreview, resetSearchBox);
+    if (printings.length === 1) {
+      openCardConfirm(printings[0], searchPreview, resetSearchBox);
+    } else {
+      openPrintingPicker(printings, searchPreview, (card) => {
+        openCardConfirm(card, searchPreview, resetSearchBox);
+      }, null);
+    }
   } catch (err) {
     searchErrorEl.textContent = 'Impossible de récupérer cette carte sur Scryfall.';
     searchErrorEl.hidden = false;
@@ -632,7 +801,7 @@ async function captureAndRecognize() {
     }
 
     setScanStatus('Lecture du texte…');
-    const { data: { text } } = await Tesseract.recognize(dataUrl, 'eng');
+    const { data: { text } } = await Tesseract.recognize(dataUrl, 'eng+fra');
     const cleaned = (text || '').replace(/[^a-zA-Z0-9À-ÿ',\-\s]/g, ' ').replace(/\s+/g, ' ').trim();
 
     if (!cleaned || cleaned.length < 2) {
@@ -642,13 +811,52 @@ async function captureAndRecognize() {
       return;
     }
 
-    setScanStatus(`Texte détecté : « ${cleaned} » — recherche sur Scryfall…`);
+    setScanStatus(`Texte détecté : « ${cleaned} » — recherche des éditions…`);
     try {
-      const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cleaned)}`);
-      if (!res.ok) throw new Error('no match');
-      const card = await res.json();
-      setScanStatus("Carte trouvée — vérifie que c'est la bonne avant d'ajouter :");
-      openCardConfirm(card, scanPreviewEl, () => setScanStatus('Cadre la carte, puis appuie sur Capturer.'));
+      // Resolve OCR'd text (which may be in French, German, etc. on a
+      // physical card) to a card name via the multilingual search, then
+      // fetch every English printing of that exact name.
+      const candidates = await searchCardsAnyLanguage(cleaned);
+      if (candidates.length === 0) throw new Error('no match');
+      const nameCard = candidates[0];
+      const printings = await resolvePrintings(nameCard.name);
+      const list = printings.length > 0 ? printings : [nameCard];
+
+      if (list.length === 1) {
+        setScanStatus("Carte trouvée — vérifie que c'est la bonne avant d'ajouter :");
+        openCardConfirm(list[0], scanPreviewEl, resetScanIdle);
+        captureBtn.disabled = false;
+        return;
+      }
+
+      // Multiple editions exist for this name — try to disambiguate automatically.
+      setScanStatus(`${list.length} éditions trouvées — lecture du numéro de collection…`);
+      const infoX = gx;
+      const infoY = gyTop + gBoxH * 0.93;
+      const infoW = gw * 0.45;
+      const infoH = gBoxH * 0.055;
+      const collectorText = await ocrCollectorArea(canvas, infoX, infoY, infoW, infoH);
+      const exactMatch = matchPrintingByCollectorText(collectorText, list);
+
+      if (exactMatch) {
+        setScanStatus(`Édition identifiée automatiquement (${exactMatch.set_name}) — vérifie avant d'ajouter :`);
+        openCardConfirm(exactMatch, scanPreviewEl, resetScanIdle);
+        captureBtn.disabled = false;
+        return;
+      }
+
+      // Fall back to visual ranking of the illustration against each candidate edition.
+      setScanStatus('Numéro illisible — comparaison visuelle des éditions…');
+      const artX = gx + gw * 0.07;
+      const artY = gyTop + gBoxH * 0.10;
+      const artW = gw * 0.86;
+      const artH = gBoxH * 0.34;
+      const bestId = await rankPrintingsByArt(canvas, artX, artY, artW, artH, list);
+
+      setScanStatus("Plusieurs éditions possibles — confirme laquelle c'est (celle en surbrillance est la plus probable) :");
+      openPrintingPicker(list, scanPreviewEl, (card) => {
+        openCardConfirm(card, scanPreviewEl, resetScanIdle);
+      }, bestId);
     } catch (e) {
       setScanStatus(`Pas de correspondance sûre pour « ${cleaned} ».`);
       renderScanFallback(cleaned);
@@ -657,6 +865,10 @@ async function captureAndRecognize() {
     setScanStatus('Erreur pendant la capture. Réessaie.');
   }
   captureBtn.disabled = false;
+}
+
+function resetScanIdle() {
+  setScanStatus('Cadre la carte, puis appuie sur Capturer.');
 }
 
 function renderScanFallback(prefill) {

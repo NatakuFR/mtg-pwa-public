@@ -55,7 +55,7 @@
           <div class="section-eyebrow">⌕ Ajouter une carte</div>
           <div id="search-idle">
             <div class="search-wrap">
-              <input class="input" id="search-input" placeholder="Nom de la carte (ex : Lightning Bolt)" autocomplete="off" />
+              <input class="input" id="search-input" placeholder="Nom de la carte, en français ou en anglais" autocomplete="off" />
               <div class="suggestions" id="suggestions" hidden></div>
             </div>
             <div class="text-loss" id="search-error" hidden style="margin-top:8px;"></div>
@@ -71,7 +71,9 @@
         <div class="section-eyebrow">📷 Scanner une carte</div>
         <p class="text-muted" style="margin:0 0 12px;">
           Lecture du nom imprimé sur la carte par reconnaissance de texte (OCR), puis recherche sur Scryfall.
-          Fonctionne mieux à plat, bien éclairé, sans reflet — vérifie toujours le résultat avant d'ajouter.
+          Si plusieurs éditions existent pour ce nom, l'app essaie d'abord de lire le numéro de collection,
+          puis compare l'illustration si besoin — tu confirmes toujours avant l'ajout.
+          Fonctionne mieux à plat, bien éclairé, sans reflet.
         </p>
         <div class="scan-stage" id="scan-stage">
           <video id="scan-video" playsinline muted></video>
