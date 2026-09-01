@@ -1,5 +1,7 @@
 /* ===== Constants & helpers ===== */
 
+const APP_VERSION = '1.4.1';
+
 const GOLD = '#c9a463';
 const GAIN = '#5fb88c';
 const LOSS = '#c2584f';
@@ -332,10 +334,12 @@ function initCollectionTab() {
   });
 }
 
-// /cards/autocomplete only matches English names — switched to /cards/search,
-// which also matches printed (localized) names, so French/German/etc. queries work too.
+// Scryfall's search de-prioritizes/ignores localized (printed) names unless
+// explicitly told to widen the language scope — confirmed empirically that
+// plain text alone finds nothing for a French name, but adding lang:any does.
 async function searchCardsAnyLanguage(query) {
-  const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=cards&order=name`);
+  const q = `${query} lang:any`;
+  const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&unique=cards&order=name`);
   if (res.status === 404) return []; // no matches — expected while typing, not an error
   if (!res.ok) throw new Error('search failed');
   const data = await res.json();
@@ -886,6 +890,38 @@ function renderAll() {
   renderEvolution();
 }
 
+/* ===== Version tracking & update detection ===== */
+
+function initVersionTracking() {
+  const tagEl = document.getElementById('version-tag');
+  if (tagEl) tagEl.textContent = 'v' + APP_VERSION;
+
+  if (!('serviceWorker' in navigator)) return;
+
+  // If a controller already exists on load, this is a repeat visit — any
+  // later controllerchange therefore means a *new* deploy just took over.
+  const hadController = !!navigator.serviceWorker.controller;
+
+  navigator.serviceWorker.register('service-worker.js').then((reg) => {
+    // Re-check for a fresher service-worker.js periodically while the
+    // app stays open — useful right after a GitHub Pages deploy, which
+    // can take a minute or two to go live.
+    setInterval(() => reg.update().catch(() => {}), 60000);
+  }).catch(() => {});
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController) showUpdateBanner();
+  });
+}
+
+function showUpdateBanner() {
+  const banner = document.getElementById('update-banner');
+  if (!banner) return;
+  banner.hidden = false;
+  const btn = document.getElementById('btn-apply-update');
+  if (btn) btn.addEventListener('click', () => window.location.reload());
+}
+
 /* ===== Init ===== */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -900,10 +936,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initEvolutionTab();
   initSettingsTab();
   initScannerTab();
+  initVersionTracking();
 
   renderAll();
-
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('service-worker.js').catch(() => {});
-  }
 });
