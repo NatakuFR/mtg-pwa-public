@@ -129,6 +129,15 @@
             <button class="btn-gold" id="btn-save-threshold">Enregistrer</button>
           </div>
 
+          <h3 style="margin-top:28px;">Sauvegarde</h3>
+          <p>Exporte un fichier de sauvegarde sur ton téléphone (dans tes Téléchargements), à recharger si tu perds tes données — changement de téléphone, cache vidé, etc.</p>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+            <button class="btn-gold" id="btn-export-backup">⭳ Exporter une sauvegarde</button>
+            <button class="btn-ghost" id="btn-import-backup">⭱ Importer une sauvegarde</button>
+            <input type="file" id="import-file-input" accept="application/json,.json" hidden />
+          </div>
+          <div id="import-status" class="text-muted" style="min-height:16px; font-size:12px;"></div>
+
           <h3 style="margin-top:28px; color: var(--loss);">Zone sensible</h3>
           <p>Efface définitivement ta collection et tout l'historique de prix stocké sur cet appareil.</p>
           <button class="btn-ghost" id="btn-reset-data" style="color: var(--loss); border-color: var(--loss);">

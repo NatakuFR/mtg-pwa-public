@@ -1,6 +1,6 @@
 /* ===== Constants & helpers ===== */
 
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 
 const GOLD = '#c9a463';
 const GAIN = '#5fb88c';
@@ -722,6 +722,16 @@ function initSettingsTab() {
     refreshAlerts();
   });
 
+  document.getElementById('btn-export-backup').addEventListener('click', exportBackup);
+
+  const fileInput = document.getElementById('import-file-input');
+  document.getElementById('btn-import-backup').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    e.target.value = ''; // allow re-selecting the same file later
+    if (file) readBackupFile(file);
+  });
+
   let resetArmed = false;
   const resetBtn = document.getElementById('btn-reset-data');
   resetBtn.addEventListener('click', () => {
@@ -742,6 +752,90 @@ function initSettingsTab() {
     resetBtn.textContent = 'Réinitialiser toutes les données';
     renderAll();
   });
+}
+
+/* ===== Backup export / import ===== */
+
+function exportBackup() {
+  const payload = {
+    app: 'grimoire-mtg',
+    exportVersion: 1,
+    exportedAt: new Date().toISOString(),
+    appVersion: APP_VERSION,
+    collection: state.collection,
+    priceHistory: state.priceHistory,
+    portfolioHistory: state.portfolioHistory,
+    settings: state.settings,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `grimoire-mtg-sauvegarde-${todayISO()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+
+  const statusEl = document.getElementById('import-status');
+  statusEl.className = 'text-gain';
+  statusEl.textContent = `Sauvegarde exportée (${state.collection.length} carte(s)).`;
+}
+
+let pendingImport = null;
+
+function readBackupFile(file) {
+  const statusEl = document.getElementById('import-status');
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (data.app !== 'grimoire-mtg' || !Array.isArray(data.collection)) {
+        throw new Error('invalid format');
+      }
+      pendingImport = data;
+      const exportDate = data.exportedAt ? new Date(data.exportedAt).toLocaleDateString('fr-FR') : 'date inconnue';
+      statusEl.className = 'text-muted';
+      statusEl.innerHTML =
+        `Fichier valide : ${data.collection.length} carte(s), exporté le ${escapeHtml(exportDate)}. ` +
+        `Ça remplacera ta collection actuelle (${state.collection.length} carte(s)). ` +
+        `<button type="button" class="btn-ghost" id="btn-confirm-import" style="margin-left:4px; padding:3px 8px; font-size:11px;">Confirmer l'import</button>`;
+      const confirmBtn = document.getElementById('btn-confirm-import');
+      if (confirmBtn) confirmBtn.addEventListener('click', applyPendingImport);
+    } catch (e) {
+      pendingImport = null;
+      statusEl.className = 'text-loss';
+      statusEl.textContent = 'Fichier invalide ou corrompu — import annulé.';
+    }
+  };
+  reader.onerror = () => {
+    statusEl.className = 'text-loss';
+    statusEl.textContent = "Impossible de lire ce fichier.";
+  };
+  reader.readAsText(file);
+}
+
+function applyPendingImport() {
+  if (!pendingImport) return;
+  state.collection = pendingImport.collection || [];
+  state.priceHistory = pendingImport.priceHistory || {};
+  state.portfolioHistory = pendingImport.portfolioHistory || [];
+  state.settings = pendingImport.settings || { alertThreshold: 10 };
+  persist('collection');
+  persist('priceHistory');
+  persist('portfolioHistory');
+  persist('settings');
+
+  const thresholdInput = document.getElementById('threshold-input');
+  if (thresholdInput) thresholdInput.value = state.settings.alertThreshold || 10;
+
+  const count = state.collection.length;
+  pendingImport = null;
+  const statusEl = document.getElementById('import-status');
+  statusEl.className = 'text-gain';
+  statusEl.textContent = `Import réussi : ${count} carte(s) restaurée(s).`;
+
+  renderAll();
 }
 
 /* ===== Scanner (camera + OCR) ===== */
