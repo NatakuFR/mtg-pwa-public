@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mtg-grimoire-v5';
+const CACHE_NAME = 'mtg-grimoire-v6';
 const APP_SHELL = [
   './',
   './index.html',

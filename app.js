@@ -1,6 +1,6 @@
 /* ===== Constants & helpers ===== */
 
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.5.0';
 
 const GOLD = '#c9a463';
 const GAIN = '#5fb88c';
@@ -267,6 +267,7 @@ function addCardToCollection(scryfallCard, qty, foil) {
     name: scryfallCard.name,
     setCode: (scryfallCard.set || '').toUpperCase(),
     setName: scryfallCard.set_name || '',
+    releasedAt: scryfallCard.released_at || null,
     imageUrl,
     foil: !!foil,
     quantity: Math.max(1, Number(qty) || 1),
@@ -328,9 +329,15 @@ function initCollectionTab() {
   });
 
   document.getElementById('collection-list').addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-remove]');
-    if (!btn) return;
-    removeCard(btn.dataset.remove);
+    const removeBtn = e.target.closest('button[data-remove]');
+    if (removeBtn) { removeCard(removeBtn.dataset.remove); return; }
+
+    const toggleBtn = e.target.closest('button[data-set-toggle]');
+    if (toggleBtn) {
+      const key = toggleBtn.dataset.setToggle;
+      if (collapsedSets.has(key)) collapsedSets.delete(key); else collapsedSets.add(key);
+      renderCollectionList();
+    }
   });
 }
 
@@ -412,34 +419,77 @@ function fallbackToManualSearch(prefill) {
   searchInput.focus();
 }
 
+let collapsedSets = new Set();
+
 function renderCollectionList() {
   const container = document.getElementById('collection-list');
   if (state.collection.length === 0) {
     container.innerHTML = `<div class="empty-state">Ta collection est vide. Cherche une carte ci-dessus, ou scanne-la avec l'appareil photo dans l'onglet Scanner.</div>`;
     return;
   }
-  container.innerHTML = state.collection.map(card => {
-    const hist = state.priceHistory[card.id] || [];
-    const last = hist[hist.length - 1];
-    const prev = hist[hist.length - 2];
-    const price = last ? (card.foil ? last.priceFoil : last.price) : null;
-    const prevPrice = prev ? (card.foil ? prev.priceFoil : prev.price) : null;
-    const pct = (price != null && prevPrice) ? ((price - prevPrice) / prevPrice) * 100 : null;
-    const deltaColor = pct === null ? '' : (pct >= 0 ? 'var(--gain)' : 'var(--loss)');
-    const deltaArrow = pct === null ? '' : (pct >= 0 ? '▲' : '▼');
+
+  // Group cards by edition (set code)
+  const groups = new Map();
+  for (const card of state.collection) {
+    const key = card.setCode || '—';
+    if (!groups.has(key)) {
+      groups.set(key, { setCode: key, setName: card.setName || key, releasedAt: card.releasedAt || null, cards: [] });
+    }
+    groups.get(key).cards.push(card);
+  }
+
+  // Most recent edition first; cards added before this feature (no releasedAt
+  // stored yet) fall back to alphabetical so nothing breaks for older entries.
+  const groupList = Array.from(groups.values()).sort((a, b) => {
+    if (a.releasedAt && b.releasedAt) return b.releasedAt.localeCompare(a.releasedAt);
+    if (a.releasedAt) return -1;
+    if (b.releasedAt) return 1;
+    return a.setName.localeCompare(b.setName);
+  });
+
+  container.innerHTML = groupList.map(group => {
+    const isCollapsed = collapsedSets.has(group.setCode);
+    let groupTotal = 0;
+
+    const rowsHtml = group.cards.map(card => {
+      const hist = state.priceHistory[card.id] || [];
+      const last = hist[hist.length - 1];
+      const prev = hist[hist.length - 2];
+      const price = last ? (card.foil ? last.priceFoil : last.price) : null;
+      const prevPrice = prev ? (card.foil ? prev.priceFoil : prev.price) : null;
+      const pct = (price != null && prevPrice) ? ((price - prevPrice) / prevPrice) * 100 : null;
+      const deltaColor = pct === null ? '' : (pct >= 0 ? 'var(--gain)' : 'var(--loss)');
+      const deltaArrow = pct === null ? '' : (pct >= 0 ? '▲' : '▼');
+      if (price != null) groupTotal += price * card.quantity;
+      return `
+        <div class="card-row">
+          ${card.imageUrl ? `<img src="${card.imageUrl}" alt="">` : `<div class="row-thumb-placeholder"></div>`}
+          <div style="flex:1; min-width:0;">
+            <div class="name">${escapeHtml(card.name)}${card.foil ? '<span class="foil-badge">FOIL</span>' : ''}</div>
+            <div class="text-muted">x${card.quantity}</div>
+          </div>
+          <div class="price-block">
+            <div class="main">${fmtEUR(price)}</div>
+            ${price != null ? `<div class="sub">${fmtEUR(price * card.quantity)} total</div>` : ''}
+          </div>
+          <div class="delta" style="color:${deltaColor};">${pct !== null ? `${deltaArrow} ${Math.abs(pct).toFixed(1)}%` : ''}</div>
+          <button type="button" class="trash-btn" data-remove="${card.id}">🗑</button>
+        </div>
+      `;
+    }).join('');
+
     return `
-      <div class="card-row">
-        ${card.imageUrl ? `<img src="${card.imageUrl}" alt="">` : `<div class="row-thumb-placeholder"></div>`}
-        <div style="flex:1; min-width:0;">
-          <div class="name">${escapeHtml(card.name)}${card.foil ? '<span class="foil-badge">FOIL</span>' : ''}</div>
-          <div class="text-muted">${escapeHtml(card.setName)} · x${card.quantity}</div>
+      <div class="edition-group">
+        <button type="button" class="edition-header${isCollapsed ? ' collapsed' : ''}" data-set-toggle="${escapeHtml(group.setCode)}">
+          <span class="edition-chevron">▾</span>
+          <span class="edition-name">${escapeHtml(group.setName)}</span>
+          <span class="edition-code text-muted">${escapeHtml(group.setCode)}</span>
+          <span class="edition-count text-muted">${group.cards.length} carte${group.cards.length > 1 ? 's' : ''}</span>
+          <span class="edition-value">${fmtEUR(groupTotal)}</span>
+        </button>
+        <div class="edition-body"${isCollapsed ? ' hidden' : ''}>
+          ${rowsHtml}
         </div>
-        <div class="price-block">
-          <div class="main">${fmtEUR(price)}</div>
-          ${price != null ? `<div class="sub">${fmtEUR(price * card.quantity)} total</div>` : ''}
-        </div>
-        <div class="delta" style="color:${deltaColor};">${pct !== null ? `${deltaArrow} ${Math.abs(pct).toFixed(1)}%` : ''}</div>
-        <button type="button" class="trash-btn" data-remove="${card.id}">🗑</button>
       </div>
     `;
   }).join('');

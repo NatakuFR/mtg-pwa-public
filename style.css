@@ -332,6 +332,57 @@ nav.tabs button.active {
 .delta { font-size: 12px; width: 56px; text-align: right; flex: 0 0 auto; }
 .trash-btn { background: none; border: none; color: var(--muted); padding: 4px; }
 
+.edition-group {
+  margin-bottom: 14px;
+}
+.edition-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-align: left;
+  margin-bottom: 8px;
+}
+.edition-chevron {
+  color: var(--muted);
+  font-size: 11px;
+  flex: 0 0 auto;
+  transition: transform 0.15s ease;
+}
+.edition-header.collapsed { margin-bottom: 0; }
+.edition-header.collapsed .edition-chevron { transform: rotate(-90deg); }
+.edition-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.edition-code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+.edition-count {
+  font-size: 11px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.edition-value {
+  font-family: var(--font-mono);
+  color: var(--gold);
+  font-size: 13px;
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
 .empty-state {
   text-align: center;
   padding: 48px 16px;
