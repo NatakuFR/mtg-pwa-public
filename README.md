@@ -46,11 +46,47 @@ pas de compte, pas de serveur, personne d'autre n'y a accès. En contrepartie :
 - La collection n'est pas synchronisée entre appareils (ton téléphone et ton ordi, par exemple,
   auront chacun leur propre collection).
 
-Si un jour tu veux une sauvegarde/export, ou une synchronisation entre appareils, dis-le-moi —
-ça se rajoute (export JSON à minima, ou un vrai compte avec base de données pour la synchro).
+Depuis la v1.6.0, tu peux exporter un fichier de sauvegarde (Réglages → Sauvegarde) et le
+réimporter si besoin — voir l'historique des versions plus bas. Il n'y a en revanche toujours
+pas de synchronisation automatique entre appareils : c'est un transfert manuel de fichier.
 
 ## Mise à jour des prix
 
 Il n'y a pas de tâche de fond : la mise à jour se fait quand tu ouvres l'appli et appuies sur
 « Mettre à jour les prix ». Chaque mise à jour ajoute un point à l'historique, ce qui construit
 progressivement le graphique d'évolution.
+
+## Historique des versions
+
+Le numéro de version courant s'affiche à côté du titre dans l'appli — utile pour vérifier
+qu'un déploiement GitHub Pages a bien pris (l'appli détecte aussi les mises à jour toute seule
+et propose de rafraîchir).
+
+**v1.6.0**
+- Sauvegarde : export d'un fichier `.json` local, et import pour restaurer une collection
+  (avec confirmation avant d'écraser les données actuelles).
+
+**v1.5.0**
+- Les cartes de l'onglet Collection sont regroupées par édition, avec un en-tête pliable/dépliable
+  affichant le nombre de cartes et la valeur du groupe. Éditions triées de la plus récente à la
+  plus ancienne.
+
+**v1.4.1**
+- Correctif : la recherche par nom traduit (français, allemand…) ne remontait aucun résultat.
+  Scryfall a besoin du paramètre `lang:any` explicitement — sans ça, il ignore les noms traduits.
+
+**v1.4.0**
+- Numéro de version affiché dans l'en-tête.
+- Détection automatique d'une nouvelle version déployée pendant que l'appli est ouverte, avec
+  bandeau et bouton pour l'appliquer.
+
+**Avant le suivi de version (version initiale)**
+- Suivi de collection avec cotes Cardmarket (EUR) via l'API Scryfall.
+- Ajout de carte par recherche texte (nom, quantité, foil).
+- Scan par appareil photo : lecture du nom par OCR (Tesseract.js), puis recherche Scryfall.
+- Désambiguïsation d'édition quand plusieurs impressions existent pour un même nom : lecture du
+  numéro de collection en priorité, sinon comparaison visuelle de l'illustration (sélecteur
+  d'éditions avec vignette la plus probable pré-sélectionnée).
+- Historique de valeur (graphique global + par carte) et alertes de variation de prix, avec seuil
+  configurable.
+- Installable en PWA via GitHub Pages ; données stockées uniquement en local sur l'appareil.
