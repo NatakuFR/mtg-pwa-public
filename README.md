@@ -62,6 +62,14 @@ Le numéro de version courant s'affiche à côté du titre dans l'appli — util
 qu'un déploiement GitHub Pages a bien pris (l'appli détecte aussi les mises à jour toute seule
 et propose de rafraîchir).
 
+**v1.7.0**
+- Scanner : passage à un worker Tesseract réutilisable en mode "ligne unique" (bien plus précis
+  qu'en mode page complète par défaut), avec prétraitement contraste de l'image avant lecture.
+- Cadre de scan réduit pour permettre de photographier la carte en reculant un peu (moins de
+  flou de mise au point de près), et résolution caméra demandée plus élevée.
+- Aperçu de la zone exactement lue affiché à l'écran, pour diagnostiquer soi-même un échec de
+  lecture (flou, luminosité) plutôt que de deviner.
+
 **v1.6.0**
 - Sauvegarde : export d'un fichier `.json` local, et import pour restaurer une collection
   (avec confirmation avant d'écraser les données actuelles).

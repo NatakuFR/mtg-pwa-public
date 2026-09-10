@@ -1,6 +1,6 @@
 /* ===== Constants & helpers ===== */
 
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.7.0';
 
 const GOLD = '#c9a463';
 const GAIN = '#5fb88c';
@@ -224,6 +224,57 @@ async function rankPrintingsByArt(sourceCanvas, artX, artY, artW, artH, printing
   return bestId;
 }
 
+/* ===== Reusable Tesseract worker (faster + configurable than one-shot calls) ===== */
+
+let tesseractWorker = null;
+let tesseractWorkerLang = null;
+
+async function getTesseractWorker(lang) {
+  if (tesseractWorker && tesseractWorkerLang === lang) return tesseractWorker;
+  if (tesseractWorker) {
+    try { await tesseractWorker.terminate(); } catch (e) { /* ignore */ }
+  }
+  tesseractWorker = await Tesseract.createWorker(lang);
+  try {
+    // 7 = PSM.SINGLE_LINE — we only ever feed it a thin cropped strip of
+    // text, so telling it not to expect a full page layout helps a lot.
+    const psm = (Tesseract.PSM && Tesseract.PSM.SINGLE_LINE) || 7;
+    await tesseractWorker.setParameters({ tessedit_pageseg_mode: psm });
+  } catch (e) { /* non-fatal: falls back to default segmentation */ }
+  tesseractWorkerLang = lang;
+  return tesseractWorker;
+}
+
+function releaseTesseractWorker() {
+  if (tesseractWorker) {
+    tesseractWorker.terminate().catch(() => {});
+    tesseractWorker = null;
+    tesseractWorkerLang = null;
+  }
+}
+
+// Grayscale + linear contrast stretch — makes printed text edges crisper
+// before OCR, especially under uneven phone-camera lighting.
+function preprocessForOCR(canvas) {
+  const ctx = canvas.getContext('2d');
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = imgData.data;
+  const gray = new Float32Array(d.length / 4);
+  let min = 255, max = 0;
+  for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+    const g = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+    gray[j] = g;
+    if (g < min) min = g;
+    if (g > max) max = g;
+  }
+  const range = Math.max(1, max - min);
+  for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+    const v = ((gray[j] - min) / range) * 255;
+    d[i] = d[i + 1] = d[i + 2] = v;
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
 /* ===== Collector number / set code OCR (bottom-left of the card) ===== */
 
 async function ocrCollectorArea(sourceCanvas, infoX, infoY, infoW, infoH) {
@@ -236,7 +287,9 @@ async function ocrCollectorArea(sourceCanvas, infoX, infoY, infoW, infoH) {
     const cx = c.getContext('2d');
     cx.imageSmoothingEnabled = true;
     cx.drawImage(sourceCanvas, infoX, infoY, infoW, infoH, 0, 0, c.width, c.height);
-    const { data: { text } } = await Tesseract.recognize(c.toDataURL('image/png'), 'eng+fra');
+    preprocessForOCR(c);
+    const worker = await getTesseractWorker('eng+fra');
+    const { data: { text } } = await worker.recognize(c.toDataURL('image/png'));
     return (text || '').toUpperCase();
   } catch (e) {
     return '';
@@ -859,7 +912,13 @@ async function startCamera() {
   }
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } },
+      video: {
+        facingMode: { ideal: 'environment' },
+        // Ask for a high-res stream explicitly — without this, browsers often
+        // default to a low resolution that makes small printed text illegible.
+        width: { ideal: 1920 },
+        height: { ideal: 1920 },
+      },
       audio: false,
     });
   } catch (e) {
@@ -881,11 +940,13 @@ function stopCamera() {
     mediaStream.getTracks().forEach(t => t.stop());
     mediaStream = null;
   }
+  releaseTesseractWorker();
   document.getElementById('scan-guide').hidden = true;
   document.getElementById('btn-scan-start').hidden = false;
   document.getElementById('btn-scan-capture').hidden = true;
   document.getElementById('btn-scan-stop').hidden = true;
   document.getElementById('scan-status').textContent = '';
+  document.getElementById('scan-crop-holder').innerHTML = '';
   document.getElementById('scan-preview').innerHTML = '';
 }
 
@@ -915,6 +976,7 @@ async function captureAndRecognize() {
 
   captureBtn.disabled = true;
   scanPreviewEl.innerHTML = '';
+  document.getElementById('scan-crop-holder').innerHTML = '';
   setScanStatus('Capture…');
 
   try {
@@ -925,21 +987,29 @@ async function captureAndRecognize() {
 
     // Match the on-screen guide box exactly, accounting for the video's
     // object-fit: cover crop inside its 3:4 container.
+    // Kept in sync with .scan-guide's CSS inset (18% top/bottom, 20% left/right).
     const { sx, sy, sw, sh } = getCoverRect(canvas.width, canvas.height, 3 / 4);
-    const gx = sx + sw * 0.12;
-    const gyTop = sy + sh * 0.08;
-    const gw = sw * 0.76;
-    const gBoxH = sh * 0.84;
+    const gx = sx + sw * 0.20;
+    const gyTop = sy + sh * 0.18;
+    const gw = sw * 0.60;
+    const gBoxH = sh * 0.64;
     const nameH = gBoxH * 0.22;
 
-    const scale = 2.2;
+    const scale = 3;
     const cropCanvas = document.createElement('canvas');
     cropCanvas.width = gw * scale;
     cropCanvas.height = nameH * scale;
     const cctx = cropCanvas.getContext('2d');
     cctx.imageSmoothingEnabled = true;
     cctx.drawImage(canvas, gx, gyTop, gw, nameH, 0, 0, cropCanvas.width, cropCanvas.height);
+    preprocessForOCR(cropCanvas);
     const dataUrl = cropCanvas.toDataURL('image/png');
+
+    // Show the reader what was actually captured — makes it obvious when a
+    // failed read is due to blur/lighting rather than an app bug. Kept in
+    // its own container so it survives even if the read fails afterward.
+    document.getElementById('scan-crop-holder').innerHTML =
+      `<img class="scan-crop-preview" src="${dataUrl}" alt="Zone lue">`;
 
     if (!window.Tesseract) {
       setScanStatus("Le module de lecture de texte n'a pas pu se charger (connexion internet nécessaire au premier lancement).");
@@ -949,8 +1019,10 @@ async function captureAndRecognize() {
     }
 
     setScanStatus('Lecture du texte…');
-    const { data: { text } } = await Tesseract.recognize(dataUrl, 'eng+fra');
+    const worker = await getTesseractWorker('eng+fra');
+    const { data: { text } } = await worker.recognize(dataUrl);
     const cleaned = (text || '').replace(/[^a-zA-Z0-9À-ÿ',\-\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
 
     if (!cleaned || cleaned.length < 2) {
       setScanStatus('Texte illisible. Réessaie avec plus de lumière, à plat, sans reflet — ou cherche la carte manuellement.');

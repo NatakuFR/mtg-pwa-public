@@ -492,13 +492,13 @@ select {
 }
 .scan-guide {
   position: absolute;
-  inset: 8% 12%;
+  inset: 18% 20%;
   border: 2px dashed var(--gold);
   border-radius: 10px;
   pointer-events: none;
 }
 .scan-guide::before {
-  content: 'Aligne le nom de la carte ici';
+  content: 'Cadre la carte ici — tu peux reculer';
   position: absolute;
   top: 8px; left: 8px; right: 8px;
   background: color-mix(in srgb, var(--void) 70%, transparent);
@@ -517,6 +517,15 @@ select {
   color: var(--muted);
   margin-bottom: 12px;
   min-height: 18px;
+}
+
+.scan-crop-preview {
+  display: block;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 10px;
+  image-rendering: -webkit-optimize-contrast;
 }
 
 .spin {
