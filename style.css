@@ -308,6 +308,15 @@ nav.tabs button.active {
   border-radius: 8px;
   padding: 10px;
   margin-bottom: 8px;
+  cursor: pointer;
+}
+.card-row:hover {
+  border-color: var(--gold);
+}
+.row-link-hint {
+  color: var(--muted);
+  font-size: 13px;
+  flex: 0 0 auto;
 }
 .card-row img, .row-thumb-placeholder {
   width: 40px; height: 56px;

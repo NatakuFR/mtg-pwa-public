@@ -1,6 +1,6 @@
 /* ===== Constants & helpers ===== */
 
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.8.0';
 
 const GOLD = '#c9a463';
 const GAIN = '#5fb88c';
@@ -321,6 +321,7 @@ function addCardToCollection(scryfallCard, qty, foil) {
     setCode: (scryfallCard.set || '').toUpperCase(),
     setName: scryfallCard.set_name || '',
     releasedAt: scryfallCard.released_at || null,
+    cardmarketUrl: scryfallCard.purchase_uris?.cardmarket || null,
     imageUrl,
     foil: !!foil,
     quantity: Math.max(1, Number(qty) || 1),
@@ -335,6 +336,36 @@ function addCardToCollection(scryfallCard, qty, foil) {
   persist('collection');
   persist('priceHistory');
   renderAll();
+}
+
+async function openCardmarketPage(cardId) {
+  const card = state.collection.find(c => c.id === cardId);
+  if (!card) return;
+
+  if (card.cardmarketUrl) {
+    window.open(card.cardmarketUrl, '_blank', 'noopener');
+    return;
+  }
+
+  // Card added before this feature existed — fetch its link once from
+  // Scryfall, remember it for next time, then open it.
+  try {
+    const res = await fetch(`https://api.scryfall.com/cards/${card.scryfallId}`);
+    if (!res.ok) throw new Error('fetch failed');
+    const data = await res.json();
+    const url = data.purchase_uris?.cardmarket;
+    if (url) {
+      card.cardmarketUrl = url;
+      persist('collection');
+      window.open(url, '_blank', 'noopener');
+    } else if (data.scryfall_uri) {
+      window.open(data.scryfall_uri, '_blank', 'noopener');
+    } else {
+      throw new Error('no url');
+    }
+  } catch (e) {
+    window.open(`https://www.cardmarket.com/en/Magic/Products/Search?searchString=${encodeURIComponent(card.name)}`, '_blank', 'noopener');
+  }
 }
 
 function removeCard(id) {
@@ -390,16 +421,22 @@ function initCollectionTab() {
       const key = toggleBtn.dataset.setToggle;
       if (collapsedSets.has(key)) collapsedSets.delete(key); else collapsedSets.add(key);
       renderCollectionList();
+      return;
     }
+
+    const row = e.target.closest('.card-row[data-open]');
+    if (row) openCardmarketPage(row.dataset.open);
   });
 }
 
 // Scryfall's search de-prioritizes/ignores localized (printed) names unless
 // explicitly told to widen the language scope — confirmed empirically that
 // plain text alone finds nothing for a French name, but adding lang:any does.
+// Deliberately no `order=` override: forcing alphabetical order was hiding
+// the actually-relevant match behind unrelated cards that just sort earlier.
 async function searchCardsAnyLanguage(query) {
   const q = `${query} lang:any`;
-  const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&unique=cards&order=name`);
+  const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&unique=cards`);
   if (res.status === 404) return []; // no matches — expected while typing, not an error
   if (!res.ok) throw new Error('search failed');
   const data = await res.json();
@@ -515,7 +552,7 @@ function renderCollectionList() {
       const deltaArrow = pct === null ? '' : (pct >= 0 ? '▲' : '▼');
       if (price != null) groupTotal += price * card.quantity;
       return `
-        <div class="card-row">
+        <div class="card-row" data-open="${card.id}" title="Voir sur Cardmarket">
           ${card.imageUrl ? `<img src="${card.imageUrl}" alt="">` : `<div class="row-thumb-placeholder"></div>`}
           <div style="flex:1; min-width:0;">
             <div class="name">${escapeHtml(card.name)}${card.foil ? '<span class="foil-badge">FOIL</span>' : ''}</div>
@@ -526,6 +563,7 @@ function renderCollectionList() {
             ${price != null ? `<div class="sub">${fmtEUR(price * card.quantity)} total</div>` : ''}
           </div>
           <div class="delta" style="color:${deltaColor};">${pct !== null ? `${deltaArrow} ${Math.abs(pct).toFixed(1)}%` : ''}</div>
+          <span class="row-link-hint">↗</span>
           <button type="button" class="trash-btn" data-remove="${card.id}">🗑</button>
         </div>
       `;
@@ -1033,12 +1071,22 @@ async function captureAndRecognize() {
 
     setScanStatus(`Texte détecté : « ${cleaned} » — recherche des éditions…`);
     try {
-      // Resolve OCR'd text (which may be in French, German, etc. on a
-      // physical card) to a card name via the multilingual search, then
-      // fetch every English printing of that exact name.
-      const candidates = await searchCardsAnyLanguage(cleaned);
-      if (candidates.length === 0) throw new Error('no match');
-      const nameCard = candidates[0];
+      // /cards/named?fuzzy= is Scryfall's own "confidently resolve
+      // imperfect text to a single card" tool — tried first since it's
+      // built for exactly this. Falls back to the broader multilingual
+      // search only if that fails to find anything.
+      let nameCard = null;
+      try {
+        const fuzzyRes = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cleaned)}`);
+        if (fuzzyRes.ok) nameCard = await fuzzyRes.json();
+      } catch (e) { /* network hiccup — fall through to broader search below */ }
+
+      if (!nameCard) {
+        const candidates = await searchCardsAnyLanguage(cleaned);
+        if (candidates.length === 0) throw new Error('no match');
+        nameCard = candidates[0];
+      }
+
       const printings = await resolvePrintings(nameCard.name);
       const list = printings.length > 0 ? printings : [nameCard];
 

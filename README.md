@@ -62,6 +62,18 @@ Le numéro de version courant s'affiche à côté du titre dans l'appli — util
 qu'un déploiement GitHub Pages a bien pris (l'appli détecte aussi les mises à jour toute seule
 et propose de rafraîchir).
 
+**v1.8.0**
+- Chaque carte de la collection est cliquable et ouvre sa page Cardmarket dans un nouvel onglet
+  (lien fourni par Scryfall). Les cartes ajoutées avant cette version récupèrent leur lien
+  automatiquement au premier clic.
+
+**v1.7.1**
+- Correctif important : le scan caméra pouvait proposer une carte totalement sans rapport avec
+  le texte lu. En cause, un tri alphabétique forcé sur les résultats de recherche — le scanner
+  prenait le premier résultat de la liste triée par ordre alphabétique au lieu du plus pertinent.
+  Utilise maintenant en priorité l'outil Scryfall dédié à la résolution d'un texte imparfait vers
+  une carte unique, avec la recherche large en repli seulement si besoin.
+
 **v1.7.0**
 - Scanner : passage à un worker Tesseract réutilisable en mode "ligne unique" (bien plus précis
   qu'en mode page complète par défaut), avec prétraitement contraste de l'image avant lecture.
